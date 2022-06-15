@@ -29,7 +29,7 @@ func uploadFile(c *gin.Context) {
 
 	bucket, isThere := c.GetQuery("bucket")
 	if !isThere {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "bucket query doesn'e exist "})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "bucket query doesn't exist "})
 		return
 	}
 
