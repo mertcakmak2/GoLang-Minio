@@ -10,10 +10,14 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
+var minioClient *minio.Client
+var ctx = context.Background()
+
 func main() {
 
 	router := gin.Default()
 
+	minioConnection()
 	router.POST("/upload-file", uploadFile)
 	router.POST("/make-bucket", makeBucket)
 	router.DELETE("/delete-object", deleteObject)
@@ -21,20 +25,11 @@ func main() {
 }
 
 func uploadFile(c *gin.Context) {
-	minioClient, err := minioConnection()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "connection error"})
-		return
-	}
-
-	bucket, isThere := c.GetQuery("bucket")
+	bucketName, isThere := c.GetQuery("bucket")
 	if !isThere {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bucket query doesn't exist "})
 		return
 	}
-
-	ctx := context.Background()
-	bucketName := bucket
 
 	_, header, err := c.Request.FormFile("file")
 	if err != nil {
@@ -60,14 +55,7 @@ func uploadFile(c *gin.Context) {
 }
 
 func deleteObject(c *gin.Context) {
-
-	minioClient, err := minioConnection()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "connection error"})
-		return
-	}
-
-	bucket, isThere := c.GetQuery("bucket")
+	bucketName, isThere := c.GetQuery("bucket")
 	if !isThere {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bucket query doesn'e exist "})
 		return
@@ -79,31 +67,19 @@ func deleteObject(c *gin.Context) {
 		return
 	}
 
-	ctx := context.Background()
-	bucketName := bucket
 	minioClient.RemoveObject(ctx, bucketName, object, minio.RemoveObjectOptions{})
-
 }
 
 func makeBucket(c *gin.Context) {
-
-	minioClient, err := minioConnection()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "connection error"})
-		return
-	}
-
-	bucket, isThere := c.GetQuery("bucket")
+	bucketName, isThere := c.GetQuery("bucket")
 	if !isThere {
 		c.JSON(http.StatusOK, gin.H{"error": "bucket query doesnt'e exist "})
 		return
 	}
 
-	ctx := context.Background()
-	bucketName := bucket
 	location := "us-east-1"
 
-	err = minioClient.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{Region: location})
+	err := minioClient.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{Region: location})
 	if err != nil {
 		exists, errBucketExists := minioClient.BucketExists(ctx, bucketName)
 		if errBucketExists == nil && exists {
@@ -114,26 +90,25 @@ func makeBucket(c *gin.Context) {
 			return
 		}
 	} else {
-		c.JSON(http.StatusCreated, gin.H{"error": "Successfully created %s\n"})
+		c.JSON(http.StatusCreated, gin.H{"message": "Successfully created %s\n"})
 		return
 	}
 }
 
-func minioConnection() (*minio.Client, error) {
-
-	endpoint := "localhost:9000"
-	accessKeyID := "minio"
-	secretAccessKey := "minio123"
+func minioConnection() {
+	// Kubernetes Minio
+	endpoint := "34.118.67.177:32725"
+	accessKeyID := "admin"
+	secretAccessKey := "xPnmKkFC8u"
 	useSSL := false
 
-	minioClient, err := minio.New(endpoint, &minio.Options{
+	var err error
+	minioClient, err = minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
 		Secure: useSSL,
 	})
 	if err != nil {
-		return nil, err
-	} else {
-		return minioClient, nil
+		panic(err)
 	}
 
 }
