@@ -6,6 +6,7 @@ import (
 	"minio/config"
 	"minio/model"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/minio/madmin-go"
@@ -23,13 +24,13 @@ func main() {
 	minioClient = minioConfig.MinioClient
 	minioAdminClient = minioConfig.MinioAdminClient
 
-	// object endpoints
+	// objects endpoints
 	router.GET("/api/objects/:bucket/:name", getObject)               // http://localhost:8080/api/objects/bucketname/Screenshot_1.png
 	router.GET("/api/objects/download/:bucket/:name", downloadObject) // http://localhost:8080/api/objects/download/bucketname/Screenshot_26.png
 	router.DELETE("/api/objects/:bucket/:name", deleteObject)         // http://localhost:8080/api/objects/bucketname/Screenshot_1.png
 	router.POST("/api/objects/:bucket", uploadFile)                   // http://localhost:8080/api/objects/bucketname with (form data file key)
 
-	// bucket endpoints
+	// buckets endpoints
 	router.POST("/api/buckets/:bucket", makeBucket)     // http://localhost:8080/api/buckets/new-bucket
 	router.DELETE("/api/buckets/:bucket", deleteBucket) // http://localhost:8080/api/buckets/new-bucket
 	router.GET("/api/buckets", retrieveBuckets)         // http://localhost:8080/api/buckets
@@ -41,10 +42,19 @@ func main() {
 
 	// users endpoints
 	router.POST("/api/users", createUser)             // http://localhost:8080/api/users
-	router.DELETE("/api/users/:username", deleteUser) // http://localhost:8080/api/users
+	router.GET("/api/users", retrieveUsers)           // http://localhost:8080/api/users
+	router.GET("/api/users/:name", getUserInfo)       // http://localhost:8080/api/users/user1
+	router.DELETE("/api/users/:username", deleteUser) // http://localhost:8080/api/users/user1
 
-	// notificaton endpoint
+	// notificatons endpoints
 	router.GET("/api/notifications", getNotifications) // http://localhost:8080/api/notifications
+
+	// policies endpoints
+	router.GET("/api/policies/:policy/bucket/:bucket", createPolicy) // http://localhost:8080/api/policies/a-policy/bucket/a-bucket
+	// router.GET("/api/policies/:policy/user/:user", setPolicyToUser)    // http://localhost:8080/api/policies/a-policy/user/a-user
+	router.GET("/api/policies/:policy/group/:group", setPolicyToGroup) // http://localhost:8080/api/policies/a-policy/group/a-group
+	router.GET("/api/policies", retrievePolicies)                      // http://localhost:8080/api/policies/a-policy/bucket/a-bucket
+
 	router.Run(":8080")
 }
 
@@ -132,10 +142,8 @@ func makeBucket(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err})
 			return
 		}
-	} else {
-		c.JSON(http.StatusCreated, gin.H{"message": "Successfully created " + bucket})
-		return
 	}
+	c.JSON(http.StatusCreated, gin.H{"message": "Successfully created " + bucket})
 }
 
 func deleteBucket(c *gin.Context) {
@@ -210,6 +218,85 @@ func deleteUser(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, "User deleted.")
+}
+
+func getUserInfo(c *gin.Context) {
+	username := c.Param("name")
+	userInfo, _ := minioAdminClient.GetUserInfo(context.Background(), username)
+	user := map[string]interface{}{
+		"username": username,
+		"status":   userInfo.Status,
+		"groups":   userInfo.MemberOf,
+		"roles":    userInfo.PolicyName,
+	}
+	c.JSON(http.StatusOK, user)
+}
+
+func retrieveUsers(c *gin.Context) {
+	users, err := minioAdminClient.ListUsers(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"users": users})
+}
+
+func createPolicy(c *gin.Context) {
+	bucket := c.Param("bucket")
+	policyName := c.Param("policy")
+	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::BUCKET-NAME/*"]}]}`
+	newPolicy := strings.Replace(policy, "BUCKET-NAME", bucket, -1)
+	err := minioAdminClient.AddCannedPolicy(ctx, policyName+"-go", []byte(newPolicy)) // yeni policy oluşturma
+	if err != nil {
+		fmt.Println(err.Error())
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"msg": newPolicy})
+}
+
+// func setPolicyToUser(c *gin.Context) {
+// 	user := c.Param("user")
+// 	policyName := c.Param("policy")
+// 	policy := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::BUCKET-NAME/*"]}]}`
+// 	newPolicy := strings.Replace(policy, "BUCKET-NAME", bucket, -1)
+// 	// fmt.Println([]byte(newPolicy))
+// 	err := minioAdminClient.SetPolicy(ctx, policy, user, false) // user'a policy atama
+// 	// err := minioAdminClient.AddCannedPolicy(ctx, bucket+"-policy-go", []byte(newPolicy)) // yeni policy oluşturma
+// 	// err = minioClient.SetBucketPolicy(ctx, bucket, newPolicy)
+// 	if err != nil {
+// 		fmt.Println(err.Error())
+// 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+// 		return
+// 	}
+// 	c.JSON(http.StatusOK, gin.H{"msg": "set policy to user"})
+// }
+
+func setPolicyToGroup(c *gin.Context) {
+	group := c.Param("group")
+	policy := c.Param("policy")
+	desc, err1 := minioAdminClient.GetGroupDescription(ctx, "a-group")
+	if err1 != nil {
+		fmt.Println(err1.Error())
+	}
+	fmt.Println(desc)
+	err := minioAdminClient.SetPolicy(ctx, policy, group, true) // group'a policy atama
+	if err != nil {
+		fmt.Println(err.Error())
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"msg": "set policy to group"})
+}
+
+func retrievePolicies(c *gin.Context) {
+	val, err := minioAdminClient.ListCannedPolicies(ctx)
+	if err != nil {
+		fmt.Println(err.Error())
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"policies": val})
 }
 
 func getNotifications(c *gin.Context) {

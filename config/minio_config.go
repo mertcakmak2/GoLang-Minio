@@ -30,6 +30,7 @@ func NewMinioConfig() *MinioConfig {
 	useSSL := false
 
 	var err error
+	// madmin.OpenIDSettings
 	minioClient, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
 		Secure: useSSL,
@@ -46,8 +47,7 @@ func NewMinioConfig() *MinioConfig {
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("Server info: ", st)
-
+	fmt.Println("Server info: ", st.Mode)
 	go listenNotification(minioClient)
 	return &MinioConfig{MinioClient: minioClient, MinioAdminClient: minioAdminClient}
 }
@@ -66,6 +66,7 @@ func listenNotification(minioClient *minio.Client) {
 			log.Fatalln(notificationInfo.Err)
 		}
 		notification := notificationInfo.Records[0]
+		fmt.Println(notification.UserIdentity)
 		event := model.Event{
 			EventName:  notification.EventName,
 			ObjectName: notification.S3.Object.Key,
